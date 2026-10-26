@@ -18,6 +18,7 @@ SETUP = "london_orb"
 CFG = dict(S.SETUPS[SETUP], stop="far", target_r=1.5)
 SYMBOL_ID = 1               # EURUSD
 LOT_VOLUME = 10_000_000     # 1 lot = 100,000 EUR, API volume = lots x 100,000 x 100
+FIXED_LOTS = 0.10           # every trade is this size; set to 0 to size by RISK_USD instead
 RISK_USD = float(os.environ.get("BOT_RISK_USD", "100"))  # max loss per trade at the stop
 MAX_LOTS = 5.0
 LABEL = "eurusd-bot"
@@ -72,6 +73,8 @@ def bot_positions(c):
 
 
 def lots_for(risk_pips):
+    if FIXED_LOTS:
+        return FIXED_LOTS
     lots = int(RISK_USD / (risk_pips * 10.0) * 100) / 100.0  # ~$10 per pip per lot
     return min(lots, MAX_LOTS)
 
@@ -157,7 +160,7 @@ def check(c):
 def main():
     once = "--once" in sys.argv
     c = CTrader()
-    log("bot start", SETUP, CFG, "risk $%.0f" % RISK_USD)
+    log("bot start", SETUP, CFG, "%.2f lots" % FIXED_LOTS if FIXED_LOTS else "risk $%.0f" % RISK_USD)
     last_status = None
     while True:
         try:
