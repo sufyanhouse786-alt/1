@@ -47,7 +47,8 @@ def signal(rows, cfg):
     rng = [r for r in rows if cfg["range_start"] <= minute(r[0]) < cfg["range_end"]]
     span = cfg["range_end"] - cfg["range_start"]
     if len(rng) < span * 0.8 or (rows and minute(rows[-1][0]) < cfg["range_end"] - 1):
-        return "no_range", {}
+        return "waiting for the range (London %02d:%02d-%02d:%02d)" % (
+            cfg["range_start"] // 60, cfg["range_start"] % 60, cfg["range_end"] // 60, cfg["range_end"] % 60), {}
     hi, lo = max(r[2] for r in rng), min(r[3] for r in rng)
     mid = (hi + lo) / 2
     info = {"hi": hi, "lo": lo}

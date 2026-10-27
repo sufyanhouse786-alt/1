@@ -4,8 +4,9 @@ Runs 09:00-17:00 PKT, checks every minute, takes at most one trade a day
 without asking (the user's standing instruction, demo account), always with a
 stop-loss and take-profit, and closes anything still open at 17:00 PKT.
 
-  python3 bot.py            # live loop until 17:00 PKT
-  python3 bot.py --once     # one check, then exit
+  python3 bot.py               # live loop until 17:00 PKT
+  python3 bot.py --minutes 59  # run at most 59 minutes (one hourly routine slot)
+  python3 bot.py --once        # one check, then exit
   touch bot/STOP            # kill switch: no new trades
 """
 import json, os, sys, time, traceback
@@ -70,6 +71,19 @@ def bot_positions(c):
     pos = c.call("get_positions").get("positions", [])
     return [p for p in pos if p.get("symbolId", SYMBOL_ID) == SYMBOL_ID and
             (p.get("label") == LABEL or LABEL in json.dumps(p))]
+
+
+def traded_today(c, now_utc):
+    """True if a bot-labelled position was opened since London midnight (so a
+    restarted bot never takes a second trade, even without its state file)."""
+    ldn_midnight = now_utc.astimezone(S.LDN).replace(hour=0, minute=0, second=0, microsecond=0)
+    deals = c.call("get_deals", fromTimestamp=str(int(ldn_midnight.timestamp() * 1000)),
+                   toTimestamp=str(int(now_utc.timestamp() * 1000)), maxRows=200).get("deals", [])
+    for pid in {d["positionId"] for d in deals if d.get("symbolId") == SYMBOL_ID}:
+        det = c.call("get_position_details", positionId=pid)
+        if det.get("position", {}).get("label") == LABEL and "self-test" not in det["position"].get("comment", ""):
+            return True
+    return False
 
 
 def lots_for(risk_pips):
@@ -146,8 +160,9 @@ def check(c):
         if not fresh:
             st["done"] = "missed (signal at %s)" % info["bar_time"]; save_state(day, st)
             log("MISSED stale signal", info); return "missed"
-        if bot_positions(c):
-            return "position already open"
+        if bot_positions(c) or traded_today(c, now):
+            st["done"] = "already traded today"; save_state(day, st)
+            return "already traded today"
         log("TRIGGERED", {k: (str(v) if k == "bar_time" else v) for k, v in info.items()})
         place(c, info, st, day)
         return "traded"
@@ -159,6 +174,8 @@ def check(c):
 
 def main():
     once = "--once" in sys.argv
+    minutes = int(sys.argv[sys.argv.index("--minutes") + 1]) if "--minutes" in sys.argv else None
+    stop_at = time.time() + minutes * 60 if minutes else None
     c = CTrader()
     log("bot start", SETUP, CFG, "%.2f lots" % FIXED_LOTS if FIXED_LOTS else "risk $%.0f" % RISK_USD)
     last_status = None
@@ -176,6 +193,9 @@ def main():
             log(s)
             last_status = s
         if once or s in ("closed", "weekend"):
+            break
+        if stop_at and time.time() >= stop_at:
+            log("slot over (%d min), exiting; the next hourly run takes over" % minutes)
             break
         time.sleep(60 - time.time() % 60 + 3)  # 3 s after each minute closes
 

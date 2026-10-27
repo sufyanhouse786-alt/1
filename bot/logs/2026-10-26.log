@@ -1,6 +1,0 @@
-2026-10-26 16:04:16 PKT bot start london_orb {'range_start': 480, 'range_end': 495, 'entry_until': 600, 'stop': 'far', 'target_r': 1.5} risk $100
-2026-10-26 16:04:17 PKT MISSED stale signal {'hi': 1.12121, 'lo': 1.1204, 'side': 'SELL', 'entry': 1.12031, 'stop': 1.12121, 'target': 1.11896, 'risk_pips': 9.00000000000123, 'bar_time': datetime.datetime(2026, 10, 26, 8, 35, tzinfo=zoneinfo.ZoneInfo(key='Europe/London')), 'index': 512}
-2026-10-26 16:04:17 PKT missed
-2026-10-26 16:04:51 PKT FLAT at 17:00 PKT: closed 689878137 {"orderId": 1031602134, "positionId": 689878137, "executionType": "ORDER_CANCELLED", "order": {"orderId": 1031602134, "symbolId": 1, "orderType": "STOP_LOSS_TAKE_PROFIT", "tradeSide": "SELL", "volume": 100000, "limitPrice": 1.12129, "stopPrice": 1.11904, "comment": "bot self-test", "label": "eurusd-bot"}, "position": {"positionId": 689878137, "symbolId": 1, "tradeSide": "BUY", "volume": 0, "entryPrice": 0, "commission": 0, "swap": 0, "comment": "bot self-test", "label": "eurusd-bot"}}
-2026-10-26 16:14:48 PKT bot start london_orb {'range_start': 480, 'range_end': 495, 'entry_until': 600, 'stop': 'far', 'target_r': 1.5} 0.10 lots
-2026-10-26 16:14:48 PKT done today (missed (signal at 2026-10-26 08:35:00+00:00))
