@@ -1,0 +1,998 @@
+<title>Lanternfall</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout: one full-bleed canvas cave; story cards float over the dark like lantern-lit pages */
+:root {
+  --ink: #07060b;
+  --stone: #1b1822;
+  --ember: #ffb547;
+  --flame: #ff7a2f;
+  --hush: #9a88e0;
+  --bone: #efe4cf;
+  --mute: #a39787;
+  --display: 'IM Fell English SC', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --body: 'Spectral', 'Iowan Old Style', Georgia, serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; background: var(--ink); color: var(--bone); overflow: hidden; }
+body { font-family: var(--body); font-size: 16px; }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--ink); }
+#screen {
+  position: fixed; inset: 0; display: grid; place-items: center; overflow-y: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px;
+  background: radial-gradient(ellipse at 50% 55%, rgba(255, 150, 60, .07), rgba(7, 6, 11, .9) 62%);
+}
+.card { width: 100%; max-width: 34rem; display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font-family: var(--display); letter-spacing: .14em; font-size: .85rem; color: var(--ember); opacity: .85; }
+h1, h2 { font-family: var(--display); font-weight: 400; margin: 0; text-wrap: balance; color: var(--bone); line-height: 1; }
+h1 { font-size: clamp(3rem, 12vw, 5.4rem); text-shadow: 0 0 38px rgba(255, 160, 70, .35); }
+h2 { font-size: clamp(2rem, 8vw, 3rem); text-shadow: 0 0 28px rgba(255, 160, 70, .25); }
+p { margin: 0; line-height: 1.6; color: var(--bone); max-width: 62ch; }
+p.quiet { color: var(--mute); font-size: .92rem; }
+p em { color: var(--ember); font-style: italic; }
+.controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 4px 0 0; font-size: .92rem; color: var(--mute); }
+.controls dt { font-family: var(--display); color: var(--bone); letter-spacing: .06em; }
+.controls dd { margin: 0; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-block: 6px; border-block: 1px solid rgba(239, 228, 207, .14); }
+.stats div { display: flex; flex-direction: column; gap: 2px; }
+.stats span { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+.stats b { font-family: var(--display); font-weight: 400; font-size: 1.5rem; font-variant-numeric: tabular-nums; color: var(--ember); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+button {
+  font: inherit; font-family: var(--display); font-size: 1.15rem; letter-spacing: .06em;
+  padding: 12px 22px; border-radius: 3px; cursor: pointer;
+  color: var(--ink); background: var(--ember); border: 1px solid var(--ember);
+  box-shadow: 0 0 24px rgba(255, 170, 70, .35);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+button:hover { transform: translateY(-1px); box-shadow: 0 0 34px rgba(255, 170, 70, .55); }
+button.ghost { background: transparent; color: var(--bone); border-color: rgba(239, 228, 207, .35); box-shadow: none; }
+button:focus-visible { outline: 2px solid var(--bone); outline-offset: 3px; }
+.verse { font-style: italic; color: var(--mute); border-left: 1px solid rgba(255, 181, 71, .4); padding-left: 14px; }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style>
+
+<canvas id="game" aria-label="Lanternfall game view"></canvas>
+<div id="screen"><div class="card" id="card"></div></div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------- constants & story ----------
+const T = 32, W = 64, H = 44;
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+const MAX_DEPTH = 7, SHARDS_PER = 3, GOOD_END = 15;
+const DEPTHS = [
+  null,
+  { name: 'The Shallows', text: 'Cold stone, and a flame no bigger than a thumb. It is yours, though. Gather <em>embers</em> to keep it burning, and look for the crack of old sunlight that leads further down.' },
+  { name: 'The Murmuring Halls', text: 'Something moves where your light does not reach. The guild books called them <em>the Hush</em>: things made of the dark the sun left behind. Bright light burns them. Your light shrinks as it burns down, and they know it.' },
+  { name: 'The Root Gallery', text: 'Roots of the mountain\'s oldest trees hang here, and they are warm. The sun passed this way. <em>Shards</em> of it are lodged in the rock. Gather them. The sun will need every piece.' },
+  { name: 'The Drowned Choir', text: 'Water drips in a rhythm, almost a hymn. The Hush are bolder now. When they press close, burn brighter: <em>Space</em> spends part of your flame in a single searing pulse.' },
+  { name: 'The Ember Veins', text: 'The rock glows red at the seams. You are close enough to feel the heat on your glass. So is the dark. It is thicker here, and faster.' },
+  { name: 'The Long Throat', text: 'A passage that swallows sound. Far below, something beats like a heart made of light. Something else is curled around it.' },
+  { name: 'The Sunwell', text: 'The fallen sun lies in the deepest chamber, guttering. Coiled around it is <em>the Hollow King</em>, all the dark its fall let loose. Four pulses will unmake it. The way to the sun opens only when it is gone.' },
+];
+
+// ---------- canvas setup ----------
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const dark = document.createElement('canvas');
+const dctx = dark.getContext('2d');
+let VW = 0, VH = 0, DPR = 1, DS = .5, SCALE = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  DS = DPR * 0.5;
+  VW = innerWidth; VH = innerHeight;
+  cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+  dark.width = Math.round(VW * DS); dark.height = Math.round(VH * DS);
+  SCALE = Math.max(0.6, Math.min(1.2, Math.min(VW, VH) / 640));
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- helpers ----------
+const rand = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+const rgb = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const idx = (x, y) => y * W + x;
+
+// ---------- audio ----------
+let AC = null, master = null, muted = false, drone = null;
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    master = AC.createGain(); master.gain.value = .7; master.connect(AC.destination);
+    // ambient drone
+    const g = AC.createGain(); g.gain.value = .035;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260;
+    const o1 = AC.createOscillator(), o2 = AC.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth'; o1.frequency.value = 55; o2.frequency.value = 55.6;
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(master); o1.start(); o2.start();
+    drone = { g, f, o1, o2 };
+  } catch (e) { AC = null; }
+}
+function tone(freq, dur, type = 'sine', vol = .1, slide = 0, delay = 0) {
+  if (!AC || muted) return;
+  const t0 = AC.currentTime + delay;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(vol, t0 + .01);
+  g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + dur + .05);
+}
+function noise(dur, vol = .15, freq = 900) {
+  if (!AC || muted) return;
+  const len = Math.floor(AC.sampleRate * dur);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  f.type = 'bandpass'; f.frequency.value = freq; g.gain.value = vol;
+  s.buffer = buf; s.connect(f); f.connect(g); g.connect(master); s.start();
+}
+const sfx = {
+  ember() { tone(880, .14, 'sine', .07); tone(1320, .18, 'sine', .05, 0, .05); },
+  shard() { [660, 830, 990, 1320].forEach((f, i) => tone(f, .35, 'triangle', .06, 0, i * .07)); },
+  pulse() { noise(.5, .25, 600); tone(220, .5, 'sine', .12, 880); },
+  hurt() { tone(120, .35, 'sawtooth', .12, 50); noise(.2, .12, 200); },
+  kill() { tone(300, .25, 'triangle', .06, 90); },
+  descend() { [196, 247, 294, 392].forEach((f, i) => tone(f, 1.4, 'triangle', .05, 0, i * .12)); },
+  heart() { tone(70, .12, 'sine', .14); tone(64, .14, 'sine', .11, 0, .16); },
+  deny() { tone(150, .2, 'square', .04, 110); },
+  boss() { tone(80, .8, 'sawtooth', .1, 40); },
+};
+function setMuted(m) {
+  muted = m;
+  if (drone) drone.g.gain.value = m ? 0 : .035;
+}
+
+// ---------- map generation ----------
+function bfs(grid, sx, sy, limit = 9999) {
+  const dist = new Int16Array(W * H).fill(-1);
+  if (grid[idx(sx, sy)]) return dist;
+  const q = new Int32Array(W * H); let h = 0, t = 0;
+  dist[idx(sx, sy)] = 0; q[t++] = idx(sx, sy);
+  while (h < t) {
+    const c = q[h++], d = dist[c];
+    if (d >= limit) continue;
+    const x = c % W, y = (c / W) | 0;
+    if (x > 0 && !grid[c - 1] && dist[c - 1] < 0) { dist[c - 1] = d + 1; q[t++] = c - 1; }
+    if (x < W - 1 && !grid[c + 1] && dist[c + 1] < 0) { dist[c + 1] = d + 1; q[t++] = c + 1; }
+    if (y > 0 && !grid[c - W] && dist[c - W] < 0) { dist[c - W] = d + 1; q[t++] = c - W; }
+    if (y < H - 1 && !grid[c + W] && dist[c + W] < 0) { dist[c + W] = d + 1; q[t++] = c + W; }
+  }
+  return dist;
+}
+
+function genGrid() {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    let g = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      g[idx(x, y)] = (x < 1 || y < 1 || x >= W - 1 || y >= H - 1 || Math.random() < .46) ? 1 : 0;
+    for (let it = 0; it < 5; it++) {
+      const n = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let c = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= W || yy >= H || g[idx(xx, yy)]) c++;
+        }
+        n[idx(x, y)] = c >= 5 ? 1 : c <= 3 ? 0 : g[idx(x, y)];
+        if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) n[idx(x, y)] = 1;
+      }
+      g = n;
+    }
+    // keep largest region
+    const seen = new Uint8Array(W * H); let best = null, bestSize = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (g[i] || seen[i]) continue;
+      const d = bfs(g, i % W, (i / W) | 0); let size = 0;
+      for (let j = 0; j < W * H; j++) if (d[j] >= 0) { seen[j] = 1; size++; }
+      if (size > bestSize) { bestSize = size; best = d; }
+    }
+    if (bestSize < W * H * .36) continue;
+    for (let i = 0; i < W * H; i++) if (!g[i] && best[i] < 0) g[i] = 1;
+    return g;
+  }
+  return null;
+}
+
+function openCell(g, x, y) {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (g[idx(x + dx, y + dy)]) return false;
+  return true;
+}
+
+function renderMap(g, depth) {
+  const c = document.createElement('canvas'); c.width = W * T; c.height = H * T;
+  const m = c.getContext('2d');
+  const k = (depth - 1) / 6;
+  const floor = mix([52, 50, 66], [74, 42, 34], k);
+  const wall = mix([12, 11, 17], [22, 10, 9], k);
+  const rim = mix([70, 68, 88], [128, 60, 38], k);
+  m.fillStyle = rgb(wall); m.fillRect(0, 0, c.width, c.height);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (g[idx(x, y)]) continue;
+    const j = rand(-4, 4);
+    m.fillStyle = rgb(floor.map(v => v + j)); m.fillRect(x * T, y * T, T, T);
+  }
+  // speckles & pebbles
+  for (let i = 0; i < 5200; i++) {
+    const x = rand(W * T), y = rand(H * T);
+    if (g[idx((x / T) | 0, (y / T) | 0)]) continue;
+    m.fillStyle = Math.random() < .5 ? rgb(rim, rand(.08, .22)) : rgb(wall, rand(.2, .5));
+    const s = rand(1, 3.2); m.fillRect(x, y, s, s);
+  }
+  for (let i = 0; i < 260; i++) {
+    const x = rand(W * T), y = rand(H * T);
+    if (g[idx((x / T) | 0, (y / T) | 0)]) continue;
+    m.fillStyle = rgb(rim, rand(.15, .3));
+    m.beginPath(); m.ellipse(x, y, rand(2, 5), rand(1.5, 3.5), rand(3), 0, 7); m.fill();
+  }
+  // organic wall edges
+  const edgeTiles = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (!g[idx(x, y)]) continue;
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => !g[idx(x + dx, y + dy)]);
+    if (dirs.length) edgeTiles.push([x, y, dirs]);
+  }
+  for (const pass of [0, 1]) {
+    for (const [x, y, dirs] of edgeTiles) {
+      const cx = x * T + T / 2, cy = y * T + T / 2;
+      for (const [dx, dy] of dirs) for (let b = 0; b < 3; b++) {
+        const off = rand(-11, 11), push = rand(2, 8), r = rand(9, 13);
+        const bx = cx + dx * push + (dy ? off : 0), by = cy + dy * push + (dx ? off : 0);
+        m.fillStyle = pass ? rgb(wall) : rgb(rim, .9);
+        m.beginPath(); m.arc(bx - (pass ? dx * 1.6 : 0), by - (pass ? dy * 1.6 : 0) + (pass ? -1.2 : 0), r, 0, 7); m.fill();
+      }
+    }
+  }
+  // depth-specific decoration
+  if (depth >= 3 && depth <= 4) { // hanging roots
+    m.lineCap = 'round';
+    for (const [x, y, dirs] of edgeTiles) {
+      if (Math.random() > .12) continue;
+      const [dx, dy] = dirs[0];
+      let px = x * T + T / 2 + dx * 14, py = y * T + T / 2 + dy * 14;
+      m.strokeStyle = rgb([96, 66, 40], .7); m.lineWidth = rand(1.5, 3);
+      m.beginPath(); m.moveTo(px, py);
+      for (let s = 0; s < 4; s++) { px += dx * 9 + rand(-6, 6); py += dy * 9 + rand(-6, 6); m.lineTo(px, py); }
+      m.stroke();
+    }
+  }
+  if (depth >= 5) { // glowing veins in the walls
+    m.lineCap = 'round';
+    for (let i = 0; i < 90; i++) {
+      const [x, y] = edgeTiles[(Math.random() * edgeTiles.length) | 0] || [0, 0];
+      let px = x * T + rand(T), py = y * T + rand(T);
+      m.strokeStyle = rgb([255, 96, 40], rand(.25, .55)); m.lineWidth = rand(1, 2.2);
+      m.beginPath(); m.moveTo(px, py);
+      for (let s = 0; s < 5; s++) { px += rand(-10, 10); py += rand(-10, 10); m.lineTo(px, py); }
+      m.stroke();
+    }
+  }
+  return c;
+}
+
+// ---------- game state ----------
+let state = 'title';
+let depth = 1, level = null, player = null;
+let shadows = [], embers = [], shards = [], particles = [], pulses = [];
+let shardsTotal = 0, shardsAtLevelStart = 0, runTime = 0, timeAtLevelStart = 0, kills = 0;
+let distField = null, distTimer = 0, toast = null, shake = 0, heartTimer = 0, now = 0;
+let best = null;
+try { best = JSON.parse(localStorage.getItem('lanternfall-best') || 'null'); } catch (e) { best = null; }
+
+function buildLevel(d) {
+  const grid = genGrid();
+  // start: an open cell; exit: farthest reachable open cell
+  const floors = [];
+  for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) if (!grid[idx(x, y)] && openCell(grid, x, y)) floors.push([x, y]);
+  const [sx, sy] = floors[(Math.random() * floors.length) | 0];
+  const ds = bfs(grid, sx, sy);
+  let ex = sx, ey = sy, far = 0;
+  for (const [x, y] of floors) if (ds[idx(x, y)] > far) { far = ds[idx(x, y)]; ex = x; ey = y; }
+  const exitDist = bfs(grid, ex, ey);
+  const lvl = { grid, start: { x: sx, y: sy }, exit: { x: ex * T + T / 2, y: ey * T + T / 2, tx: ex, ty: ey }, exitDist, map: renderMap(grid, d), sealed: d === MAX_DEPTH };
+
+  const freeCells = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (!grid[idx(x, y)]) freeCells.push([x, y]);
+  const taken = [];
+  const farEnough = (x, y, m) => taken.every(([a, b]) => Math.abs(a - x) + Math.abs(b - y) >= m);
+  const pick = (minStart, spacing, tries = 400) => {
+    for (let i = 0; i < tries; i++) {
+      const [x, y] = freeCells[(Math.random() * freeCells.length) | 0];
+      if (ds[idx(x, y)] < minStart) continue;
+      if (Math.abs(x - ex) + Math.abs(y - ey) < 3) continue;
+      if (!farEnough(x, y, spacing)) continue;
+      taken.push([x, y]); return [x, y];
+    }
+    return null;
+  };
+  shards = [];
+  for (let i = 0; i < SHARDS_PER; i++) {
+    const p = pick(18, 10) || pick(8, 4);
+    if (p) shards.push({ x: p[0] * T + T / 2, y: p[1] * T + T / 2, ph: rand(7) });
+  }
+  embers = [];
+  const emberCount = 32;
+  for (let i = 0; i < emberCount; i++) {
+    const p = pick(3, 4) || pick(2, 2);
+    if (p) embers.push({ x: p[0] * T + T / 2 + rand(-6, 6), y: p[1] * T + T / 2 + rand(-6, 6), ph: rand(7) });
+  }
+  shadows = [];
+  const count = d === 1 ? 0 : 2 + d * 2;
+  for (let i = 0; i < count; i++) {
+    const p = pick(16, 3);
+    if (p) shadows.push(makeShadow(p[0] * T + T / 2, p[1] * T + T / 2, d, false));
+  }
+  if (d === MAX_DEPTH) {
+    // the Hollow King waits near the sun
+    let bx = ex, by = ey, bestD = 1e9;
+    for (const [x, y] of floors) { const e = exitDist[idx(x, y)]; if (e >= 5 && e < bestD) { bestD = e; bx = x; by = y; } }
+    shadows.push(makeShadow(bx * T + T / 2, by * T + T / 2, d, true));
+  }
+  return lvl;
+}
+
+function makeShadow(x, y, d, boss) {
+  return {
+    x, y, boss, hp: boss ? 4 : 1, r: boss ? 26 : 12,
+    speed: boss ? 98 : 60 + d * 7.5, flee: 0, wx: x, wy: y, ph: rand(7), hit: 0, burn: 0,
+  };
+}
+
+function startLevel(d, fresh) {
+  depth = d;
+  level = buildLevel(d);
+  player = { x: level.start.x * T + T / 2, y: level.start.y * T + T / 2, fuel: 100, vx: 0, vy: 0, inv: 0, cd: 0, face: 0 };
+  particles = []; pulses = []; distField = null; distTimer = 0; shake = 0;
+  if (fresh) { shardsTotal = 0; runTime = 0; kills = 0; }
+  shardsAtLevelStart = shardsTotal; timeAtLevelStart = runTime;
+  if (drone) drone.f.frequency.value = 200 + d * 40;
+}
+
+function say(text, dur = 2.6) { toast = { text, t: dur, max: dur }; }
+
+// ---------- input ----------
+const keys = {};
+const touch = { active: false, id: null, ox: 0, oy: 0, x: 0, y: 0, used: false };
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code) && state === 'play') e.preventDefault();
+  if (state === 'play') {
+    if (e.code === 'Space') pulse();
+    if (e.code === 'Escape' || e.code === 'KeyP') pause();
+  } else if (state === 'pause' && (e.code === 'Escape' || e.code === 'KeyP')) { resume(); }
+  if (e.code === 'KeyM') { setMuted(!muted); say(muted ? 'Sound off' : 'Sound on', 1.2); }
+  if (e.code === 'Enter' && state !== 'play') {
+    const b = document.querySelector('#card button'); if (b) { e.preventDefault(); b.click(); }
+  }
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (state === 'play') pause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') pause(); });
+
+function pulseButton() { return { x: VW - 78 - safeRight(), y: VH - 92 - safeBottom(), r: 44 }; }
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  touch.used = true;
+  if (state !== 'play') return;
+  const pb = pulseButton();
+  if (Math.hypot(e.clientX - pb.x, e.clientY - pb.y) < pb.r + 14) { pulse(); return; }
+  if (e.clientX > VW - 64 && e.clientY < 64) { pause(); return; }
+  if (!touch.active) {
+    touch.active = true; touch.id = e.pointerId;
+    touch.ox = touch.x = e.clientX; touch.oy = touch.y = e.clientY;
+  }
+});
+cv.addEventListener('pointermove', e => { if (touch.active && e.pointerId === touch.id) { touch.x = e.clientX; touch.y = e.clientY; } });
+const endTouch = e => { if (e.pointerId === touch.id) { touch.active = false; touch.id = null; } };
+cv.addEventListener('pointerup', endTouch);
+cv.addEventListener('pointercancel', endTouch);
+
+// ---------- mechanics ----------
+const lightRadius = () => 70 + player.fuel * 2.2;
+function solidAt(px, py) {
+  const tx = Math.floor(px / T), ty = Math.floor(py / T);
+  if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+  return level.grid[idx(tx, ty)] === 1;
+}
+function collides(x, y, r) {
+  return solidAt(x - r, y - r) || solidAt(x + r, y - r) || solidAt(x - r, y + r) || solidAt(x + r, y + r)
+    || solidAt(x, y - r) || solidAt(x, y + r) || solidAt(x - r, y) || solidAt(x + r, y);
+}
+
+function burst(x, y, n, color, speed = 120, life = .8, size = 2.5, glow = false) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(Math.PI * 2), s = rand(speed * .3, speed);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(life * .5, life), max: life, color, size: rand(size * .5, size), glow });
+  }
+}
+
+function pulse() {
+  if (state !== 'play') return;
+  if (player.cd > 0) return;
+  if (player.fuel < 16) { say('Too little flame left to pulse', 1.4); sfx.deny(); return; }
+  player.fuel -= 12; player.cd = 1.1;
+  pulses.push({ x: player.x, y: player.y, t: 0 });
+  sfx.pulse(); shake = Math.max(shake, 5);
+  burst(player.x, player.y, 40, [255, 200, 110], 380, .6, 3, true);
+  for (const s of shadows) {
+    if (Math.hypot(s.x - player.x, s.y - player.y) > 215) continue;
+    if (s.boss) {
+      s.hp--; s.flee = 2.6; s.hit = .5; sfx.boss(); shake = 12;
+      burst(s.x, s.y, 50, [40, 30, 70], 260, 1.2, 5);
+      if (s.hp > 0) say(['', 'The Hollow King gutters. One more.', 'It thins. Twice more.', 'It recoils. Three more.'][s.hp], 2.4);
+    } else s.hp = 0;
+  }
+}
+
+function killShadow(s) {
+  s.dead = true; kills++;
+  burst(s.x, s.y, s.boss ? 120 : 26, [60, 44, 100], s.boss ? 320 : 150, s.boss ? 1.8 : .9, s.boss ? 6 : 3.5);
+  sfx.kill();
+  if (s.boss) {
+    level.sealed = false; shake = 20;
+    say('The Hollow King comes apart like smoke. The sun is open to you.', 4);
+    burst(s.x, s.y, 80, [255, 190, 90], 300, 1.6, 3, true);
+  } else if (Math.random() < .5 && !solidAt(s.x, s.y)) {
+    embers.push({ x: s.x, y: s.y, ph: rand(7) });
+  }
+}
+
+function updateShadow(s, dt) {
+  const R = lightRadius();
+  const dx = player.x - s.x, dy = player.y - s.y, dist = Math.hypot(dx, dy) || 1;
+  s.flee = Math.max(0, s.flee - dt); s.hit = Math.max(0, s.hit - dt); s.ph += dt * 3;
+  s.burn = Math.max(0, s.burn - dt);
+  if (!s.boss && dist < R * .42) { s.hp -= dt * .85; s.flee = Math.max(s.flee, .7); s.burn = .15;
+    if (Math.random() < dt * 30) particles.push({ x: s.x + rand(-8, 8), y: s.y + rand(-8, 8), vx: rand(-20, 20), vy: rand(-60, -20), life: .5, max: .5, color: [255, 150, 80], size: 2, glow: true }); }
+  if (s.hp <= 0) { killShadow(s); return; }
+
+  const tx = clamp(Math.floor(s.x / T), 0, W - 1), ty = clamp(Math.floor(s.y / T), 0, H - 1);
+  const d = distField ? distField[idx(tx, ty)] : -1;
+  const huntRange = s.boss ? 34 : 14;
+  let gx = s.wx, gy = s.wy;
+  const g = level.grid;
+  const neighbors = [];
+  for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+    if (!ox && !oy) continue;
+    const nx = tx + ox, ny = ty + oy;
+    if (nx < 0 || ny < 0 || nx >= W || ny >= H || g[idx(nx, ny)]) continue;
+    if (ox && oy && (g[idx(tx + ox, ty)] || g[idx(tx, ty + oy)])) continue;
+    neighbors.push([nx, ny]);
+  }
+  if (s.flee > 0) {
+    let bestN = null, bestV = -1;
+    for (const [nx, ny] of neighbors) { const v = distField ? distField[idx(nx, ny)] : 0; const vv = v < 0 ? 99 : v; if (vv > bestV) { bestV = vv; bestN = [nx, ny]; } }
+    if (bestN) { gx = bestN[0] * T + T / 2; gy = bestN[1] * T + T / 2; }
+  } else if (d >= 0 && d < huntRange) {
+    if (d <= 1) { gx = player.x; gy = player.y; }
+    else {
+      let bestN = null, bestV = 1e9;
+      for (const [nx, ny] of neighbors) { const v = distField[idx(nx, ny)]; if (v >= 0 && v < bestV) { bestV = v; bestN = [nx, ny]; } }
+      if (bestN) { gx = bestN[0] * T + T / 2; gy = bestN[1] * T + T / 2; }
+    }
+  } else {
+    if (Math.hypot(s.wx - s.x, s.wy - s.y) < 4 && neighbors.length) {
+      const [nx, ny] = neighbors[(Math.random() * neighbors.length) | 0];
+      s.wx = nx * T + T / 2; s.wy = ny * T + T / 2;
+    }
+    gx = s.wx; gy = s.wy;
+  }
+  let sp = s.speed * (s.flee > 0 ? 1.1 : 1);
+  if (!s.boss && dist < R * .8) sp *= .6;
+  if (d < 0 || d >= huntRange) sp *= .55;
+  const mx = gx - s.x, my = gy - s.y, ml = Math.hypot(mx, my);
+  if (ml > .5) { const st = Math.min(ml, sp * dt); s.x += mx / ml * st; s.y += my / ml * st; }
+  // separation
+  for (const o of shadows) {
+    if (o === s || o.dead) continue;
+    const sx = s.x - o.x, sy = s.y - o.y, sl = Math.hypot(sx, sy);
+    if (sl > 0 && sl < 22) { s.x += sx / sl * 20 * dt; s.y += sy / sl * 20 * dt; }
+  }
+  // contact
+  if (dist < s.r + 10 && player.inv <= 0 && s.flee <= 0) {
+    const drain = s.boss ? 24 : 15;
+    player.fuel -= drain; player.inv = .9; s.flee = 2.4; shake = 10; sfx.hurt();
+    player.vx += dx / dist * 420; player.vy += dy / dist * 420;
+    burst(player.x, player.y, 18, [255, 140, 60], 160, .6, 2.5, true);
+  }
+}
+
+function update(dt) {
+  now += dt; runTime += dt;
+  const p = player;
+  // movement
+  let ix = 0, iy = 0;
+  if (keys.KeyA || keys.ArrowLeft) ix -= 1;
+  if (keys.KeyD || keys.ArrowRight) ix += 1;
+  if (keys.KeyW || keys.ArrowUp) iy -= 1;
+  if (keys.KeyS || keys.ArrowDown) iy += 1;
+  if (touch.active) {
+    const jx = touch.x - touch.ox, jy = touch.y - touch.oy, jl = Math.hypot(jx, jy);
+    if (jl > 8) { const m = Math.min(1, jl / 55); ix = jx / jl * m; iy = jy / jl * m; }
+  }
+  const il = Math.hypot(ix, iy); if (il > 1) { ix /= il; iy /= il; }
+  const SPEED = 158;
+  p.vx += (ix * SPEED - p.vx) * Math.min(1, dt * 12);
+  p.vy += (iy * SPEED - p.vy) * Math.min(1, dt * 12);
+  if (il > .1) p.face = Math.atan2(iy, ix);
+  const nx = p.x + p.vx * dt; if (!collides(nx, p.y, 9)) p.x = nx; else p.vx *= -.2;
+  const ny = p.y + p.vy * dt; if (!collides(p.x, ny, 9)) p.y = ny; else p.vy *= -.2;
+  p.inv = Math.max(0, p.inv - dt); p.cd = Math.max(0, p.cd - dt);
+
+  // flame decay
+  p.fuel -= (1.45 + depth * .22) * dt;
+  if (p.fuel <= 25) {
+    heartTimer -= dt;
+    if (heartTimer <= 0) { sfx.heart(); heartTimer = .55 + p.fuel / 40; }
+  }
+  if (p.fuel <= 0) { p.fuel = 0; die(); return; }
+
+  // pickups
+  for (let i = embers.length - 1; i >= 0; i--) {
+    const e = embers[i];
+    const dd = Math.hypot(e.x - p.x, e.y - p.y);
+    if (dd < 46) { e.x += (p.x - e.x) * dt * 6; e.y += (p.y - e.y) * dt * 6; }
+    if (dd < 16) {
+      embers.splice(i, 1); p.fuel = Math.min(100, p.fuel + 15); sfx.ember();
+      burst(e.x, e.y, 12, [255, 190, 90], 90, .5, 2.2, true);
+    }
+  }
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const s = shards[i];
+    if (Math.hypot(s.x - p.x, s.y - p.y) < 20) {
+      shards.splice(i, 1); shardsTotal++; p.fuel = Math.min(100, p.fuel + 25); sfx.shard();
+      burst(s.x, s.y, 40, [255, 230, 160], 200, 1, 2.8, true);
+      say(`Sun shard ${shardsTotal} of ${MAX_DEPTH * SHARDS_PER}` + (shards.length ? '' : ' · none left on this depth'), 2.2);
+    }
+  }
+
+  // shadows
+  distTimer -= dt;
+  if (distTimer <= 0) {
+    distTimer = .2;
+    distField = bfs(level.grid, clamp(Math.floor(p.x / T), 0, W - 1), clamp(Math.floor(p.y / T), 0, H - 1), 36);
+  }
+  for (const s of shadows) if (!s.dead) updateShadow(s, dt);
+  shadows = shadows.filter(s => !s.dead);
+  if (state !== 'play') return;
+
+  // exit
+  const ex = level.exit;
+  if (Math.hypot(ex.x - p.x, ex.y - p.y) < 24) {
+    if (level.sealed) {
+      if (!toast || toast.t < .3) { say('The Hollow King still coils around the sun.', 1.8); sfx.deny(); }
+    } else descend();
+  }
+
+  // particles: lantern sparks
+  if (Math.random() < dt * 22) particles.push({ x: p.x + rand(-4, 4), y: p.y - 6, vx: rand(-14, 14), vy: rand(-55, -25), life: rand(.4, .9), max: .9, color: [255, rand(150, 210) | 0, 80], size: rand(1, 2.2), glow: true });
+  if (depth >= 5 && Math.random() < dt * 14) {
+    const ax = p.x + rand(-VW, VW) / SCALE * .6, ay = p.y + rand(-VH, VH) / SCALE * .6;
+    if (!solidAt(ax, ay)) particles.push({ x: ax, y: ay, vx: rand(-6, 6), vy: rand(-18, -6), life: 2.5, max: 2.5, color: [255, 110, 50], size: 1.4, glow: true });
+  }
+  for (const q of particles) { q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= .96; q.vy *= .96; q.life -= dt; }
+  particles = particles.filter(q => q.life > 0);
+  for (const q of pulses) q.t += dt;
+  pulses = pulses.filter(q => q.t < .7);
+  if (toast) { toast.t -= dt; if (toast.t <= 0) toast = null; }
+  shake = Math.max(0, shake - dt * 30);
+}
+
+// ---------- rendering ----------
+function camera() {
+  const vw = VW / SCALE, vh = VH / SCALE;
+  let cx = player.x - vw / 2, cy = player.y - vh / 2;
+  cx = vw > W * T ? (W * T - vw) / 2 : clamp(cx, 0, W * T - vw);
+  cy = vh > H * T ? (H * T - vh) / 2 : clamp(cy, 0, H * T - vh);
+  if (shake > 0) { cx += rand(-shake, shake) / SCALE; cy += rand(-shake, shake) / SCALE; }
+  return { x: cx, y: cy, w: vw, h: vh };
+}
+
+function drawShadowBody(s) {
+  const t = s.ph;
+  const base = s.hit > 0 ? [120, 90, 170] : s.burn > 0 ? [70, 30, 40] : [10, 7, 18];
+  for (let i = 0; i < (s.boss ? 9 : 5); i++) {
+    const a = t * .7 + i * 1.3, rr = s.r * (.55 + .25 * Math.sin(t * 1.7 + i));
+    ctx.fillStyle = rgb(base, s.boss ? .7 : .75);
+    ctx.beginPath(); ctx.arc(s.x + Math.cos(a) * s.r * .35, s.y + Math.sin(a * 1.3) * s.r * .3, rr, 0, 7); ctx.fill();
+  }
+  // trailing wisps
+  ctx.strokeStyle = rgb(base, .6); ctx.lineWidth = s.boss ? 4 : 2; ctx.lineCap = 'round';
+  for (let i = 0; i < (s.boss ? 7 : 3); i++) {
+    const a = Math.PI / 2 + (i - 1) * .5 + Math.sin(t + i) * .3;
+    ctx.beginPath(); ctx.moveTo(s.x, s.y);
+    ctx.quadraticCurveTo(s.x + Math.cos(a) * s.r + Math.sin(t * 2 + i) * 6, s.y + Math.sin(a) * s.r,
+      s.x + Math.cos(a) * s.r * 1.8, s.y + Math.sin(a) * s.r * 1.9);
+    ctx.stroke();
+  }
+}
+
+function drawEyes(s) {
+  const lookA = Math.atan2(player.y - s.y, player.x - s.x);
+  const ex = Math.cos(lookA) * s.r * .25, ey = Math.sin(lookA) * s.r * .2 - s.r * .1;
+  const gap = s.r * .32, blink = (Math.sin(s.ph * .9) > .97) ? .2 : 1;
+  const col = s.boss ? [255, 90, 70] : [200, 190, 255];
+  ctx.fillStyle = rgb(col, .9);
+  for (const sgn of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(s.x + ex + sgn * gap, s.y + ey, s.boss ? 4 : 2.2, (s.boss ? 3.2 : 1.8) * blink, 0, 0, 7);
+    ctx.fill();
+  }
+}
+
+function render() {
+  const cam = camera();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#07060b'; ctx.fillRect(0, 0, VW, VH);
+  if (!level) return;
+  const k = DPR * SCALE;
+  ctx.setTransform(k, 0, 0, k, -cam.x * k, -cam.y * k);
+
+  // map (visible slice)
+  const sx = clamp(Math.floor(cam.x), 0, W * T), sy = clamp(Math.floor(cam.y), 0, H * T);
+  const sw = Math.min(W * T - sx, Math.ceil(cam.w) + 2), sh = Math.min(H * T - sy, Math.ceil(cam.h) + 2);
+  if (sw > 0 && sh > 0) ctx.drawImage(level.map, sx, sy, sw, sh, sx, sy, sw, sh);
+
+  const onScreen = (x, y, m = 60) => x > cam.x - m && x < cam.x + cam.w + m && y > cam.y - m && y < cam.y + cam.h + m;
+
+  // exit: a crack of old sunlight
+  const ex = level.exit;
+  if (onScreen(ex.x, ex.y, 120)) {
+    const pulseK = .5 + .5 * Math.sin(now * 2);
+    if (depth === MAX_DEPTH) {
+      const g = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, 30);
+      g.addColorStop(0, level.sealed ? '#ffcf80' : '#fff4d6'); g.addColorStop(.6, level.sealed ? '#c2501f' : '#ffb347'); g.addColorStop(1, 'rgba(255,120,40,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex.x, ex.y, 30, 0, 7); ctx.fill();
+    } else {
+      ctx.save(); ctx.translate(ex.x, ex.y); ctx.rotate(.4);
+      ctx.fillStyle = `rgba(255,${200 + pulseK * 40 | 0},140,.95)`;
+      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(5, -4); ctx.lineTo(2, 4); ctx.lineTo(6, 16); ctx.lineTo(-3, 6); ctx.lineTo(-1, -3); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+  // embers
+  for (const e of embers) {
+    if (!onScreen(e.x, e.y)) continue;
+    const b = Math.sin(now * 3 + e.ph) * 2;
+    ctx.fillStyle = '#ff9a3c'; ctx.beginPath(); ctx.arc(e.x, e.y + b, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffe2a0'; ctx.beginPath(); ctx.arc(e.x, e.y + b - 1, 2, 0, 7); ctx.fill();
+  }
+  // shards
+  for (const s of shards) {
+    if (!onScreen(s.x, s.y)) continue;
+    const b = Math.sin(now * 2 + s.ph) * 3;
+    ctx.save(); ctx.translate(s.x, s.y + b); ctx.rotate(now * .8 + s.ph);
+    ctx.fillStyle = '#fff1c4';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const r = i % 2 ? 3.5 : 9; const a = i * Math.PI / 4; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  // shadows (bodies only show where light falls)
+  for (const s of shadows) if (onScreen(s.x, s.y, 80)) drawShadowBody(s);
+  // player lantern
+  const p = player;
+  if (!(p.inv > 0 && Math.floor(now * 20) % 2)) {
+    ctx.fillStyle = '#2a2018'; ctx.fillRect(p.x - 7, p.y - 9, 14, 3); ctx.fillRect(p.x - 6, p.y + 7, 12, 3);
+    ctx.strokeStyle = '#3b2c1f'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 12, 4, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,214,150,.55)'; ctx.fillRect(p.x - 6, p.y - 6, 12, 13);
+    ctx.strokeStyle = '#2a2018'; ctx.lineWidth = 1.4; ctx.strokeRect(p.x - 6, p.y - 6, 12, 13);
+  }
+
+  // ---- darkness ----
+  const R = lightRadius() * (1 + .03 * Math.sin(now * 13) + .02 * Math.sin(now * 7.3 + 1));
+  dctx.setTransform(1, 0, 0, 1, 0, 0);
+  dctx.globalCompositeOperation = 'source-over';
+  dctx.fillStyle = 'rgba(3,2,7,.985)'; dctx.fillRect(0, 0, dark.width, dark.height);
+  dctx.globalCompositeOperation = 'destination-out';
+  const dk = DS * SCALE;
+  dctx.setTransform(dk, 0, 0, dk, -cam.x * dk, -cam.y * dk);
+  const hole = (x, y, r, a) => {
+    if (!onScreen(x, y, r)) return;
+    const g = dctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(.55, `rgba(0,0,0,${a * .8})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    dctx.fillStyle = g; dctx.beginPath(); dctx.arc(x, y, r, 0, 7); dctx.fill();
+  };
+  hole(p.x, p.y, R, 1);
+  for (const e of embers) hole(e.x, e.y, 30, .55);
+  for (const s of shards) hole(s.x, s.y, 46, .65);
+  hole(ex.x, ex.y, depth === MAX_DEPTH ? 150 : 95, depth === MAX_DEPTH && level.sealed ? .6 : .85);
+  for (const q of pulses) hole(q.x, q.y, 60 + q.t * 420, Math.max(0, 1 - q.t / .7));
+  for (const q of particles) if (q.glow) hole(q.x, q.y, 10, .3 * q.life / q.max);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(dark, 0, 0, cv.width, cv.height);
+
+  // ---- light & things that glow through the dark ----
+  ctx.setTransform(k, 0, 0, k, -cam.x * k, -cam.y * k);
+  ctx.globalCompositeOperation = 'lighter';
+  let g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, R * .9);
+  g.addColorStop(0, 'rgba(255,150,60,.22)'); g.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, R * .9, 0, 7); ctx.fill();
+  g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 18);
+  g.addColorStop(0, 'rgba(255,240,200,.95)'); g.addColorStop(1, 'rgba(255,150,60,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, 7); ctx.fill();
+  for (const e of embers) {
+    if (!onScreen(e.x, e.y)) continue;
+    g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, 14);
+    g.addColorStop(0, 'rgba(255,160,60,.5)'); g.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(e.x, e.y, 14, 0, 7); ctx.fill();
+  }
+  for (const s of shards) {
+    if (!onScreen(s.x, s.y)) continue;
+    g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 26);
+    g.addColorStop(0, 'rgba(255,240,190,.55)'); g.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s.x, s.y, 26, 0, 7); ctx.fill();
+  }
+  if (onScreen(ex.x, ex.y, 120)) {
+    const rr = depth === MAX_DEPTH ? 90 : 46;
+    g = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, rr);
+    g.addColorStop(0, depth === MAX_DEPTH && level.sealed ? 'rgba(220,80,40,.4)' : 'rgba(255,220,150,.5)'); g.addColorStop(1, 'rgba(255,160,60,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex.x, ex.y, rr, 0, 7); ctx.fill();
+  }
+  for (const q of particles) {
+    if (!q.glow || !onScreen(q.x, q.y)) continue;
+    ctx.fillStyle = rgb(q.color, clamp(q.life / q.max, 0, 1));
+    ctx.fillRect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size);
+  }
+  for (const q of pulses) {
+    const r = 30 + q.t * 300, a = Math.max(0, 1 - q.t / .7);
+    ctx.strokeStyle = `rgba(255,210,140,${a * .8})`; ctx.lineWidth = 6 * a + 1;
+    ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const q of particles) {
+    if (q.glow || !onScreen(q.x, q.y)) continue;
+    ctx.fillStyle = rgb(q.color, clamp(q.life / q.max, 0, 1) * .8);
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.size, 0, 7); ctx.fill();
+  }
+  // eyes in the dark
+  for (const s of shadows) if (onScreen(s.x, s.y)) drawEyes(s);
+
+  // compass: the lantern leans toward the way down
+  if (level.exitDist && state === 'play') {
+    let cx = clamp(Math.floor(p.x / T), 0, W - 1), cy = clamp(Math.floor(p.y / T), 0, H - 1);
+    for (let step = 0; step < 6; step++) {
+      let bx = cx, by = cy, bv = level.exitDist[idx(cx, cy)];
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const v = level.exitDist[idx(cx + ox, cy + oy)];
+        if (v >= 0 && (bv < 0 || v < bv)) { bv = v; bx = cx + ox; by = cy + oy; }
+      }
+      cx = bx; cy = by;
+    }
+    const a = Math.atan2(cy * T + T / 2 - p.y, cx * T + T / 2 - p.x);
+    if (Math.hypot(ex.x - p.x, ex.y - p.y) > 60) {
+      const rr = 30;
+      ctx.fillStyle = 'rgba(255,200,120,.55)';
+      ctx.beginPath();
+      ctx.moveTo(p.x + Math.cos(a) * (rr + 8), p.y + Math.sin(a) * (rr + 8));
+      ctx.lineTo(p.x + Math.cos(a + .18) * rr, p.y + Math.sin(a + .18) * rr);
+      ctx.lineTo(p.x + Math.cos(a - .18) * rr, p.y + Math.sin(a - .18) * rr);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  drawHUD();
+}
+
+function drawHUD() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (state === 'title') return;
+  const sl = Math.max(16, safeLeft()), top = 18;
+  const fuel = player.fuel / 100;
+  // depth label
+  ctx.fillStyle = 'rgba(239,228,207,.9)';
+  ctx.font = '22px "IM Fell English SC", Georgia, serif';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`Depth ${ROMAN[depth]}`, sl, top);
+  ctx.font = 'italic 14px Spectral, Georgia, serif';
+  ctx.fillStyle = 'rgba(163,151,135,.95)';
+  ctx.fillText(DEPTHS[depth].name, sl, top + 26);
+  // flame meter
+  const bw = Math.min(220, VW * .45), by = top + 52;
+  ctx.fillStyle = 'rgba(239,228,207,.1)'; ctx.fillRect(sl, by, bw, 8);
+  const low = player.fuel < 25;
+  const flick = low ? .55 + .45 * Math.sin(now * 10) : 1;
+  const grd = ctx.createLinearGradient(sl, 0, sl + bw, 0);
+  grd.addColorStop(0, low ? `rgba(220,60,40,${flick})` : '#ff7a2f'); grd.addColorStop(1, low ? `rgba(255,120,60,${flick})` : '#ffd27a');
+  ctx.fillStyle = grd; ctx.fillRect(sl, by, bw * clamp(fuel, 0, 1), 8);
+  ctx.font = '12px Spectral, Georgia, serif'; ctx.fillStyle = 'rgba(163,151,135,.95)';
+  ctx.fillText(low ? 'Flame failing — find embers' : 'Flame', sl, by + 13);
+  // shards
+  ctx.textAlign = 'right';
+  const sr = VW - Math.max(16, safeRight());
+  ctx.font = '22px "IM Fell English SC", Georgia, serif'; ctx.fillStyle = '#ffe9b8';
+  ctx.fillText(`${shardsTotal} / ${MAX_DEPTH * SHARDS_PER}`, sr - (touch.used ? 48 : 0), top);
+  ctx.font = '12px Spectral, Georgia, serif'; ctx.fillStyle = 'rgba(163,151,135,.95)';
+  ctx.fillText('sun shards', sr - (touch.used ? 48 : 0), top + 26);
+  // boss hp
+  const boss = shadows.find(s => s.boss);
+  if (boss && Math.hypot(boss.x - player.x, boss.y - player.y) < 520) {
+    ctx.textAlign = 'center';
+    ctx.font = '18px "IM Fell English SC", Georgia, serif'; ctx.fillStyle = 'rgba(255,120,100,.95)';
+    ctx.fillText('The Hollow King', VW / 2, VH - 56 - safeBottom());
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i < boss.hp ? 'rgba(255,90,70,.9)' : 'rgba(239,228,207,.15)';
+      ctx.fillRect(VW / 2 - 58 + i * 30, VH - 30 - safeBottom(), 26, 6);
+    }
+  }
+  ctx.textAlign = 'left';
+  // toast
+  if (toast) {
+    const a = clamp(Math.min(toast.t, toast.max - toast.t) * 3, 0, 1);
+    ctx.textAlign = 'center';
+    ctx.font = 'italic 17px Spectral, Georgia, serif';
+    ctx.fillStyle = `rgba(239,228,207,${a})`;
+    ctx.fillText(toast.text, VW / 2, Math.max(top + 76, VH * .2));
+    ctx.textAlign = 'left';
+  }
+  // first-depth hint
+  if (depth === 1 && runTime < 9 && state === 'play') {
+    ctx.textAlign = 'center'; ctx.font = '14px Spectral, Georgia, serif';
+    ctx.fillStyle = `rgba(163,151,135,${clamp(9 - runTime, 0, 1)})`;
+    ctx.fillText(touch.used ? 'Drag anywhere to move · the arrow by your lantern points the way down' : 'WASD or arrows to move · the arrow by your lantern points the way down', VW / 2, VH - 40 - safeBottom());
+    ctx.textAlign = 'left';
+  }
+  // touch controls
+  if (touch.used && state === 'play') {
+    const pb = pulseButton();
+    const ready = player.cd <= 0 && player.fuel >= 16;
+    ctx.strokeStyle = ready ? 'rgba(255,200,120,.8)' : 'rgba(239,228,207,.2)'; ctx.lineWidth = 2;
+    ctx.fillStyle = ready ? 'rgba(255,170,70,.18)' : 'rgba(239,228,207,.05)';
+    ctx.beginPath(); ctx.arc(pb.x, pb.y, pb.r, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '16px "IM Fell English SC", Georgia, serif'; ctx.fillStyle = ready ? '#ffe2a8' : 'rgba(239,228,207,.4)';
+    ctx.fillText('Pulse', pb.x, pb.y);
+    // pause glyph
+    ctx.fillStyle = 'rgba(239,228,207,.6)';
+    ctx.fillRect(VW - 36 - safeRight(), 22, 5, 18); ctx.fillRect(VW - 26 - safeRight(), 22, 5, 18);
+    if (touch.active) {
+      ctx.strokeStyle = 'rgba(239,228,207,.25)';
+      ctx.beginPath(); ctx.arc(touch.ox, touch.oy, 55, 0, 7); ctx.stroke();
+      const jx = touch.x - touch.ox, jy = touch.y - touch.oy, jl = Math.hypot(jx, jy), m = Math.min(55, jl);
+      ctx.fillStyle = 'rgba(255,200,120,.35)';
+      ctx.beginPath(); ctx.arc(touch.ox + (jl ? jx / jl * m : 0), touch.oy + (jl ? jy / jl * m : 0), 20, 0, 7); ctx.fill();
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  } else if (!touch.used && state === 'play' && player.cd <= 0 && depth >= 2) {
+    ctx.font = '12px Spectral, Georgia, serif'; ctx.fillStyle = 'rgba(163,151,135,.8)';
+    ctx.fillText('Space: pulse', sl, by + 28);
+  }
+}
+
+// safe-area insets, read once per resize via a probe
+const probe = document.createElement('div');
+probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none';
+document.body.appendChild(probe);
+const inset = prop => parseFloat(getComputedStyle(probe)[prop]) || 0;
+const safeLeft = () => inset('paddingLeft'), safeRight = () => inset('paddingRight'), safeBottom = () => inset('paddingBottom');
+
+// ---------- screens ----------
+const screen = document.getElementById('screen'), card = document.getElementById('card');
+function show(html, actions) {
+  card.innerHTML = html;
+  screen.hidden = false;
+  const row = document.createElement('div'); row.className = 'row';
+  actions.forEach(([label, fn, ghost]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    if (ghost) b.className = 'ghost';
+    b.addEventListener('click', () => { initAudio(); fn(); });
+    row.appendChild(b);
+  });
+  card.appendChild(row);
+  const first = row.querySelector('button'); if (first) first.focus({ preventScroll: true });
+}
+function hide() { screen.hidden = true; cv.focus && cv.focus(); }
+const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+function titleScreen() {
+  state = 'title';
+  const bestLine = best ? `<p class="quiet">Best run: ${best.shards} shards in ${fmtTime(best.time)}${best.good ? ', and the sun rose' : ''}.</p>` : '';
+  show(`
+    <div class="eyebrow">A descent in seven depths</div>
+    <h1>Lanternfall</h1>
+    <p>The sun did not set over Halloway. It <em>fell</em>, through the mountain and into the Hollow beneath, and the town has been dark for nine days. The Lamplighters' Guild had one lantern left to send down after it.</p>
+    <p>You are that lantern.</p>
+    <dl class="controls">
+      <dt>Move</dt><dd>WASD or arrow keys · on a phone, drag anywhere</dd>
+      <dt>Pulse</dt><dd>Space · spends flame to burn back the dark</dd>
+      <dt>Pause</dt><dd>P or Esc · M toggles sound</dd>
+    </dl>
+    ${bestLine}`, [['Light the lantern', () => storyScreen(1, true)]]);
+}
+
+function storyScreen(d, fresh) {
+  state = 'story';
+  startLevel(d, fresh);
+  const info = DEPTHS[d];
+  const extra = d > 1 ? `<p class="quiet">Sun shards carried: ${shardsTotal} of ${MAX_DEPTH * SHARDS_PER}. The sun will need at least ${GOOD_END} to rise.</p>` : '';
+  show(`
+    <div class="eyebrow">Depth ${ROMAN[d]} of VII</div>
+    <h2>${info.name}</h2>
+    <p>${info.text}</p>
+    ${extra}`, [[d === 1 ? 'Step into the dark' : 'Descend', play]]);
+}
+
+function play() { state = 'play'; hide(); last = performance.now(); if (depth === 1 && runTime < .1) say('Your flame burns down on its own. Embers feed it.', 4); }
+function pause() {
+  if (state !== 'play') return;
+  state = 'pause';
+  show(`<div class="eyebrow">Depth ${ROMAN[depth]} · ${DEPTHS[depth].name}</div><h2>The flame waits</h2><p class="quiet">Shards: ${shardsTotal} · Time: ${fmtTime(runTime)} · Sound ${muted ? 'off' : 'on'} (M)</p>`,
+    [['Resume', resume], [muted ? 'Sound on' : 'Sound off', () => { setMuted(!muted); state = 'play'; pause(); }, true], ['Abandon run', titleScreen, true]]);
+}
+function resume() { state = 'play'; hide(); last = performance.now(); }
+
+function die() {
+  state = 'dead';
+  burst(player.x, player.y, 60, [255, 120, 40], 200, 1.2, 3, true);
+  const lines = [
+    'The last of the flame curls up and goes out. The Hush close in, and the Hollow is quiet again.',
+    'Your glass goes cold. Somewhere above, Halloway keeps waiting.',
+    'The dark folds over the place where you were.',
+  ];
+  show(`
+    <div class="eyebrow">Depth ${ROMAN[depth]} · ${DEPTHS[depth].name}</div>
+    <h2>The flame went out</h2>
+    <p>${lines[(Math.random() * lines.length) | 0]}</p>
+    <p class="quiet">Rekindling restarts this depth with the shards you carried into it (${shardsAtLevelStart}).</p>`,
+    [[`Rekindle at Depth ${ROMAN[depth]}`, () => { shardsTotal = shardsAtLevelStart; runTime = timeAtLevelStart; storyScreen(depth, false); }], ['Start over', () => storyScreen(1, true), true]]);
+}
+
+function descend() {
+  sfx.descend();
+  if (depth >= MAX_DEPTH) return ending();
+  storyScreen(depth + 1, false);
+}
+
+function ending() {
+  state = 'end';
+  const good = shardsTotal >= GOOD_END;
+  const rec = { shards: shardsTotal, time: runTime, good };
+  if (!best || rec.shards > best.shards || (rec.shards === best.shards && rec.time < best.time)) {
+    best = rec;
+    try { localStorage.setItem('lanternfall-best', JSON.stringify(best)); } catch (e) { /* storage unavailable */ }
+  }
+  const text = good
+    ? `<p>You pour the shards back into the sun one by one, and it remembers what it is. Light climbs the mountain faster than you fell. In Halloway nine days of night end all at once, and somebody laughs out loud in the street.</p><p class="verse">They will never know a lantern did this. You know.</p>`
+    : `<p>The sun takes what you brought it. It is not enough to rise, but it is enough to burn. A small, steady dawn glows in the deep, and through the mountain's cracks Halloway sees a warm light it can walk toward.</p><p class="verse">Perhaps that is how new towns begin.</p><p class="quiet">Carry ${GOOD_END} or more sun shards to the bottom to see the other ending.</p>`;
+  show(`
+    <div class="eyebrow">Depth VII · The Sunwell</div>
+    <h2>${good ? 'Dawn over Halloway' : 'A Lantern Below'}</h2>
+    ${text}
+    <div class="stats">
+      <div><span>Shards</span><b>${shardsTotal}/${MAX_DEPTH * SHARDS_PER}</b></div>
+      <div><span>Time</span><b>${fmtTime(runTime)}</b></div>
+      <div><span>Hush burned</span><b>${kills}</b></div>
+    </div>`, [['Descend again', () => storyScreen(1, true)]]);
+}
+
+// ---------- loop ----------
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(.05, (t - last) / 1000); last = t;
+  if (state === 'play') update(dt);
+  else { now += dt; for (const q of particles) { q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt; } particles = particles.filter(q => q.life > 0); }
+  render();
+  requestAnimationFrame(frame);
+}
+
+// backdrop level behind the title card
+startLevel(1, true);
+titleScreen();
+requestAnimationFrame(frame);
+})();
+</script>
