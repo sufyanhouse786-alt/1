@@ -79,6 +79,17 @@ Every order uses:
 - `clientOrderId`: `YYYYMMDD-HHMM-S1` (or S2, S3); unique per order
 - `comment`: setup, direction, stop in pips, planned R, e.g. `S1 long stop14.2p tp2.0R bias H4 up`
 
+After placing an order, check with `get_positions` or `get_pending_orders` that the stop loss and take
+profit are attached. If they aren't, cancel or close immediately and report it.
+`amend_position` replaces protections, so always send both stopLoss and takeProfit.
+
+## Execution notes
+- If a tool result is ambiguous (sizing, price units), don't place the order; report instead.
+- The news calendar is checked with WebSearch or WebFetch on a public economic calendar.
+- S3 uses MARKET orders with `relativeStopLoss` and `relativeTakeProfit`, given as integers in 1/100000 of price.
+- Before trading, confirm sizing: the dollar risk must be ≤ 0.5% of balance.
+- Work out London time carefully (UK daylight saving) from UTC.
+
 ## Each run (in order)
 1. `get_session_status`. If the session isn't `demo` and `trading`, **stop and report. Never trade live.**
 2. `get_balance`, `get_positions`, today's and this week's `get_deals` → calculate today's R, this week's R,
